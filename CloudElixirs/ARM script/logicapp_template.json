@@ -1,0 +1,171 @@
+{
+    "$schema": "https://schema.management.azure.com/schemas/2015-01-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "workflows_hackathon_logic_app_name": {
+            "defaultValue": "hackathon-logic-app-ner",
+            "type": "String"
+        },
+        "connections_azuredatalake_externalid": {
+            "defaultValue": "/subscriptions/128f565f-fd22-4eac-b114-42ef945e1432/resourceGroups/abz-bigdata-projects-01/providers/Microsoft.Web/connections/azuredatalake",
+            "type": "String"
+        },
+        "connections_cognitiveservicestextanalytics_externalid": {
+            "defaultValue": "/subscriptions/128f565f-fd22-4eac-b114-42ef945e1432/resourceGroups/abz-bigdata-projects-01/providers/Microsoft.Web/connections/cognitiveservicestextanalytics",
+            "type": "String"
+        },
+        "connections_servicebus_externalid": {
+            "defaultValue": "/subscriptions/128f565f-fd22-4eac-b114-42ef945e1432/resourceGroups/abz-bigdata-projects-01/providers/Microsoft.Web/connections/servicebus",
+            "type": "String"
+        }
+    },
+    "variables": {},
+    "resources": [
+        {
+            "type": "Microsoft.Logic/workflows",
+            "apiVersion": "2017-07-01",
+            "name": "[parameters('workflows_hackathon_logic_app_name')]",
+            "location": "eastus",
+            "properties": {
+                "state": "Enabled",
+                "definition": {
+                    "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+                    "contentVersion": "1.0.0.0",
+                    "parameters": {
+                        "$connections": {
+                            "defaultValue": {},
+                            "type": "Object"
+                        }
+                    },
+                    "staticResults": {
+                        "Detect_Sentiment_(V2)0": {
+                            "status": "Succeeded",
+                            "outputs": {
+                                "headers": {},
+                                "statusCode": "OK"
+                            }
+                        }
+                    },
+                    "triggers": {
+                        "When_a_message_is_received_in_a_queue_(auto-complete)": {
+                            "recurrence": {
+                                "frequency": "Second",
+                                "interval": 3
+                            },
+                            "type": "ApiConnection",
+                            "inputs": {
+                                "host": {
+                                    "connection": {
+                                        "name": "@parameters('$connections')['servicebus']['connectionId']"
+                                    }
+                                },
+                                "method": "get",
+                                "path": "/@{encodeURIComponent(encodeURIComponent('input-queue'))}/messages/head",
+                                "queries": {
+                                    "queueType": "Main"
+                                }
+                            }
+                        }
+                    },
+                    "actions": {
+                        "Append_File_(sequential)": {
+                            "runAfter": {
+                                "Create_CSV_table": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "ApiConnection",
+                            "inputs": {
+                                "body": "@body('Create_CSV_table')",
+                                "host": {
+                                    "connection": {
+                                        "name": "@parameters('$connections')['azuredatalake']['connectionId']"
+                                    }
+                                },
+                                "method": "post",
+                                "path": "/webhdfs/v1/@{encodeURIComponent('/ner.csv')}",
+                                "queries": {
+                                    "account": "cloudelixiradl",
+                                    "append": "true",
+                                    "op": "APPEND"
+                                }
+                            }
+                        },
+                        "Create_CSV_table": {
+                            "runAfter": {
+                                "Detect_Sentiment_(V2)": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "Table",
+                            "inputs": {
+                                "columns": [
+                                    {
+                                        "header": "",
+                                        "value": "@item()?['id']"
+                                    },
+                                    {
+                                        "header": "",
+                                        "value": "@item()?['score']"
+                                    }
+                                ],
+                                "format": "CSV",
+                                "from": "@body('Detect_Sentiment_(V2)')?['documents']"
+                            }
+                        },
+                        "Detect_Sentiment_(V2)": {
+                            "runAfter": {},
+                            "type": "ApiConnection",
+                            "inputs": {
+                                "body": {
+                                    "documents": [
+                                        {
+                                            "id": "@base64ToString(triggerBody()?['ContentData'])",
+                                            "language": "en",
+                                            "text": "@base64ToString(triggerBody()?['ContentData'])"
+                                        }
+                                    ]
+                                },
+                                "host": {
+                                    "connection": {
+                                        "name": "@parameters('$connections')['cognitiveservicestextanalytics']['connectionId']"
+                                    }
+                                },
+                                "method": "post",
+                                "path": "/v2/text/analytics/v2.1/sentiment"
+                            },
+                            "runtimeConfiguration": {
+                                "staticResult": {
+                                    "staticResultOptions": "Disabled",
+                                    "name": "Detect_Sentiment_(V2)0"
+                                }
+                            }
+                        }
+                    },
+                    "outputs": {}
+                },
+                "parameters": {
+                    "$connections": {
+                        "value": {
+                            "azuredatalake": {
+                                "connectionId": "[parameters('connections_azuredatalake_externalid')]",
+                                "connectionName": "azuredatalake",
+                                "id": "/subscriptions/128f565f-fd22-4eac-b114-42ef945e1432/providers/Microsoft.Web/locations/eastus/managedApis/azuredatalake"
+                            },
+                            "cognitiveservicestextanalytics": {
+                                "connectionId": "[parameters('connections_cognitiveservicestextanalytics_externalid')]",
+                                "connectionName": "cognitiveservicestextanalytics",
+                                "id": "/subscriptions/128f565f-fd22-4eac-b114-42ef945e1432/providers/Microsoft.Web/locations/eastus/managedApis/cognitiveservicestextanalytics"
+                            },
+                            "servicebus": {
+                                "connectionId": "[parameters('connections_servicebus_externalid')]",
+                                "connectionName": "servicebus",
+                                "id": "/subscriptions/128f565f-fd22-4eac-b114-42ef945e1432/providers/Microsoft.Web/locations/eastus/managedApis/servicebus"
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    ]
+}
